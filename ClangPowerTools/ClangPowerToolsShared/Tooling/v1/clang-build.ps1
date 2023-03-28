@@ -634,10 +634,20 @@ Function Get-ClangIncludeDirectories( [Parameter(Mandatory=$false)][string[]] $i
 
   foreach ($includeDir in $includeDirectories)
   {
+    # Ignore dirs which don't exist. This reduces the command line length
+    if (![System.IO.Path]::Exists($includeDir))
+    {
+      continue
+    }
     $returnDirs += ("-isystem" + (Get-QuotedPath $includeDir))
   }
   foreach ($includeDir in $additionalIncludeDirectories)
   {
+    # Ignore dirs which don't exist. This reduces the command line length
+    if (![System.IO.Path]::Exists($includeDir))
+    {
+      continue
+    }
     if ($aTreatAdditionalIncludesAsSystemIncludes)
     {
       $returnDirs += ("-isystem" + (Get-QuotedPath $includeDir))
@@ -824,6 +834,12 @@ Function Get-TidyCallArguments( [Parameter(Mandatory=$false)][string[]] $preproc
                                                         -ChildPath ([guid]::NewGuid().ToString() + $kExtensionYaml)
       $tidyArgs += $kClangTidyFixExportFixes + @((Get-QuotedPath $tidyFixReplacementYamlPath))
     }
+  }
+  
+  # Hack: Fix unreal project macros and force include order
+  if ((VariableExists "UnrealProject") -and $UnrealProject)
+  {
+    FixUnrealProjectArguments ([ref]$preprocessorDefinitions) ([ref]$forceIncludeFiles)
   }
 
   $tidyArgs += (Get-QuotedPath $fileToTidy)
@@ -1525,7 +1541,11 @@ Function Process-Project( [Parameter(Mandatory=$true)] [string]       $vcxprojPa
     }
 
     [string[]] $cppForceIncludes = Get-FileForceIncludes -fileFullName $cpp
+    [string[]] $fileAdditionalIncludeDirectories = Get-FileAdditionalIncludes -fileFullName $cpp
     [string] $exeToCall = Get-ExeToCall -workloadType $workloadType
+
+    # Merge file includes with project includes.
+    $additionalIncludeDirectories = $additionalIncludeDirectories + $fileAdditionalIncludeDirectories | Select-Object -Unique
 
     [string] $finalPchPath = $pchFilePath
     if ($cppPchSetting -ieq 'NotUsing')

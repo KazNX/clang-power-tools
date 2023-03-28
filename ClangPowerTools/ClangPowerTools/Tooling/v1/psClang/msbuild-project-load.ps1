@@ -655,6 +655,9 @@ function ParseProjectFile([string] $projectFilePath)
     InitializeMsBuildCurrentFileProperties -filePath $projectFilePath
     SanitizeProjectNode($fileXml.Project)
 
+    [bool] $unrealDetected = DetectUnreal
+    Set-Var -Name "UnrealProject" -Value $unrealDetected
+
     Pop-Location
     
     # restore previous path
@@ -702,4 +705,27 @@ function LoadProject([string] $vcxprojPath)
     InitializeMsBuildProjectProperties
 
     ParseProjectFile -projectFilePath $global:vcxprojPath
+}
+
+
+<#
+.DESCRIPTION
+Check the loaded project configuration for an Unreal generated project, returning true if detected.
+An unreal project is detected when we have an NMake project ($NMakeBuildCommandLine present) and
+the project contains a file named <project>.Build.cs (the project name is not checked).
+#>
+Function DetectUnreal
+{
+    [string] $nmakeCommandLine = Get-Variable "NMakeBuildCommandLine" -ErrorAction SilentlyContinue
+    if (![string]::IsNullOrEmpty($nmakeCommandLine)) {
+        $projectItems = Get-Variable "CPT_PROJITEM_None" -ErrorAction SilentlyContinue
+        if ($projectItems) {
+            foreach ($item in $projectItems.Value) {
+                if ($item[0].EndsWith(".Build.cs")) {
+                    return $true
+                }
+            }
+        }
+    }
+    return $false
 }

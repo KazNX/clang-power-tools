@@ -185,8 +185,30 @@ Function Is-Project-Unicode()
 
 Function Get-Project-CppStandard()
 {
-    Set-ProjectItemContext "ClCompile"
-    $cppStd = Get-ProjectItemProperty "LanguageStandard"
+    if ((Is-NMakeProject))
+    {
+        # For an NMake project, lookin in the $AdditionalOptions for the project.
+        if ((VariableExists "AdditionalOptions"))
+        {
+            foreach ($option in $AdditionalOptions)
+            {
+                [string] $cppStdOpt = "/std:c++"
+                if ($option.StartsWith($cppStdOpt))
+                {
+                    # Enumlate the project setting for a non NMake project to let the remaining
+                    # function logic to play out.
+                    $cppStd = "stdcpp" + $option.Substring($cppStdOpt.Length)
+                    break
+                }
+            }
+        }
+    }
+    else
+    {
+        Set-ProjectItemContext "ClCompile"
+        $cppStd = Get-ProjectItemProperty "LanguageStandard"
+    }
+
     if (!$cppStd)
     {
         $cppStd = $kDefaultCppStd
@@ -292,86 +314,90 @@ Function Get-ProjectIncludeDirectories()
         $returnArray += Get-VisualStudio-Includes -vsPath $vsPath -mscVer $mscVer
     }
 
-    $sdkVer = Get-Project-SDKVer
-
-    # We did not find a WinSDK version in the vcxproj. We use Visual Studio's defaults
-    if ([string]::IsNullOrEmpty($sdkVer))
+    # Only add the Windows SDK includes for a non-makefile project.
+    if (!(Is-NMakeProject))
     {
-        if ($platformToolset.EndsWith("xp"))
-        {
-            $sdkVer = $kVSDefaultWinSDK_XP
-        }
-        else
-        {
-            $sdkVer = $kVSDefaultWinSDK
-        }
-    }
+        $sdkVer = Get-Project-SDKVer
 
-    Write-Verbose "WinSDK version: $sdkVer"
-
-    # ----------------------------------------------------------------------------------------------
-    # Windows 10
-
-    if ((![string]::IsNullOrEmpty($sdkVer)) -and ($sdkVer.StartsWith("10")))
-    {
-        if ($sdkVer -eq "10.0")
+        # We did not find a WinSDK version in the vcxproj. We use Visual Studio's defaults
+        if ([string]::IsNullOrEmpty($sdkVer))
         {
-            # Project uses the latest Win10 SDK. We have to detect its location.
-            $sdkVer = Get-LatestSDKVersion
+            if ($platformToolset.EndsWith("xp"))
+            {
+                $sdkVer = $kVSDefaultWinSDK_XP
+            }
+            else
+            {
+                $sdkVer = $kVSDefaultWinSDK
+            }
         }
 
-        $returnArray += @("${Env:ProgramFiles(x86)}\Windows Kits\10\Include\$sdkVer\ucrt")
+        Write-Verbose "WinSDK version: $sdkVer"
 
-        if ($platformToolset.EndsWith("xp"))
+        # ----------------------------------------------------------------------------------------------
+        # Windows 10
+
+        if ((![string]::IsNullOrEmpty($sdkVer)) -and ($sdkVer.StartsWith("10")))
         {
-            $returnArray += @($kIncludePathsXPTargetingSDK)
+            if ($sdkVer -eq "10.0")
+            {
+                # Project uses the latest Win10 SDK. We have to detect its location.
+                $sdkVer = Get-LatestSDKVersion
+            }
+
+            $returnArray += @("${Env:ProgramFiles(x86)}\Windows Kits\10\Include\$sdkVer\ucrt")
+
+            if ($platformToolset.EndsWith("xp"))
+            {
+                $returnArray += @($kIncludePathsXPTargetingSDK)
+            }
+            else
+            {
+                $returnArray += @( "${Env:ProgramFiles(x86)}\Windows Kits\10\Include\$sdkVer\um"
+                    , "${Env:ProgramFiles(x86)}\Windows Kits\10\Include\$sdkVer\shared"
+                    , "${Env:ProgramFiles(x86)}\Windows Kits\10\Include\$sdkVer\winrt"
+                    , "${Env:ProgramFiles(x86)}\Windows Kits\10\Include\$sdkVer\cppwinrt"
+                )
+            }
         }
-        else
+
+        # ----------------------------------------------------------------------------------------------
+        # Windows 8 / 8.1
+
+        if ((![string]::IsNullOrEmpty($sdkVer)) -and ($sdkVer.StartsWith("8.")))
         {
-            $returnArray += @( "${Env:ProgramFiles(x86)}\Windows Kits\10\Include\$sdkVer\um"
-                , "${Env:ProgramFiles(x86)}\Windows Kits\10\Include\$sdkVer\shared"
-                , "${Env:ProgramFiles(x86)}\Windows Kits\10\Include\$sdkVer\winrt"
-                , "${Env:ProgramFiles(x86)}\Windows Kits\10\Include\$sdkVer\cppwinrt"
-            )
+            $returnArray += @("${Env:ProgramFiles(x86)}\Windows Kits\10\Include\10.0.10240.0\ucrt")
+
+            if ($platformToolset.EndsWith("xp"))
+            {
+                $returnArray += @($kIncludePathsXPTargetingSDK)
+            }
+            else
+            {
+                $returnArray += @( "${Env:ProgramFiles(x86)}\Windows Kits\$sdkVer\Include\um"
+                    , "${Env:ProgramFiles(x86)}\Windows Kits\$sdkVer\Include\shared"
+                    , "${Env:ProgramFiles(x86)}\Windows Kits\$sdkVer\Include\winrt"
+                )
+            }
         }
-    }
 
-    # ----------------------------------------------------------------------------------------------
-    # Windows 8 / 8.1
+        # ----------------------------------------------------------------------------------------------
+        # Windows 7
 
-    if ((![string]::IsNullOrEmpty($sdkVer)) -and ($sdkVer.StartsWith("8.")))
-    {
-        $returnArray += @("${Env:ProgramFiles(x86)}\Windows Kits\10\Include\10.0.10240.0\ucrt")
-
-        if ($platformToolset.EndsWith("xp"))
+        if ((![string]::IsNullOrEmpty($sdkVer)) -and ($sdkVer.StartsWith("7.0")))
         {
-            $returnArray += @($kIncludePathsXPTargetingSDK)
-        }
-        else
-        {
-            $returnArray += @( "${Env:ProgramFiles(x86)}\Windows Kits\$sdkVer\Include\um"
-                , "${Env:ProgramFiles(x86)}\Windows Kits\$sdkVer\Include\shared"
-                , "${Env:ProgramFiles(x86)}\Windows Kits\$sdkVer\Include\winrt"
-            )
-        }
-    }
+            $returnArray += @("$vsPath\VC\Auxiliary\VS\include")
 
-    # ----------------------------------------------------------------------------------------------
-    # Windows 7
-
-    if ((![string]::IsNullOrEmpty($sdkVer)) -and ($sdkVer.StartsWith("7.0")))
-    {
-        $returnArray += @("$vsPath\VC\Auxiliary\VS\include")
-
-        if ($platformToolset.EndsWith("xp"))
-        {
-            $returnArray += @( "${Env:ProgramFiles(x86)}\Windows Kits\10\Include\10.0.10240.0\ucrt"
-                , $kIncludePathsXPTargetingSDK
-            )
-        }
-        else
-        {
-            $returnArray += @( "${Env:ProgramFiles(x86)}\Windows Kits\10\Include\7.0\ucrt")
+            if ($platformToolset.EndsWith("xp"))
+            {
+                $returnArray += @( "${Env:ProgramFiles(x86)}\Windows Kits\10\Include\10.0.10240.0\ucrt"
+                    , $kIncludePathsXPTargetingSDK
+                )
+            }
+            else
+            {
+                $returnArray += @( "${Env:ProgramFiles(x86)}\Windows Kits\10\Include\7.0\ucrt")
+            }
         }
     }
 
@@ -379,9 +405,9 @@ Function Get-ProjectIncludeDirectories()
     {
         return @(Get-ProjectIncludesFromIncludePathVar)
     }
-    else 
+    else
     {
-        $returnArray += @(Get-ProjectIncludesFromIncludePathVar)    
+        $returnArray += @(Get-ProjectIncludesFromIncludePathVar)
     }
 
     return ( $returnArray | ForEach-Object { Remove-PathTrailingSlash -path $_ } )
@@ -483,6 +509,27 @@ Function Get-FileForceIncludes([Parameter(Mandatory=$true)] [string] $fileFullNa
 }
 
 
+Function Get-FileAdditionalIncludes([Parameter(Mandatory=$true)] [string] $fileFullName)
+{
+    try
+    {
+        [string] $forceIncludes = Get-ProjectFileSetting -fileFullName $fileFullName -propertyName "AdditionalIncludeDirectories"
+        return ($forceIncludes -split ";")                                                       | `
+               Where-Object { ![string]::IsNullOrWhiteSpace($_) }                                | `
+               # Canonizing the path will remove items which don't exist. This is good, we can end
+               # up losing an include path which is created later when the project settings are
+               # cached.
+               ForEach-Object { Canonize-Path -base $ProjectDir -child $_.Trim() -ignoreErrors } | `
+               Where-Object { ![string]::IsNullOrEmpty($_) }                                     | `
+               ForEach-Object { $_ -replace '\\$', '' }
+    }
+    catch
+    {
+        return $null
+    }
+}
+
+
 <#
 .DESCRIPTION
   Retrieve directory in which stdafx.h resides
@@ -550,4 +597,79 @@ Function Get-PchCppIncludeHeader([Parameter(Mandatory = $true)][string] $pchCppF
         }
     }
     return ""
+}
+
+Function Is-NMakeProject()
+{
+    if ((VariableExists "Keyword") -and $Keyword -eq "MakeFileProj")
+    {
+        return $true
+    }
+    return $false
+}
+
+<#
+.DESCRIPTION
+Fix clang-tidy program arguments to work with an Urneal project, provided we have an Unreal project.
+
+An Unreal project is detected by having $UnrealProject previously set (during project load).
+
+For such a project we must modify the command line arguments as follows:
+
+- Change the order of the force includes. We expect Unreal PCH, then source file header, but having
+  the PCH first prevents clang from compiling since it's not a valid clang PCH file. Swapping the
+  order is a workaround as it's no longer treated as a PCH file.
+- Add additional preprocessor directives to;
+  - Work around a clang incompability in Unreal. This turns a built in pause instruction into a
+    noop, which is ok for clang-tidy, but not for clang compilation.
+  - Remove Unreal's meta macros. Technically the Unreal headers will do this, but in some cases it
+    is useful to run with incomplete include directories for faster (albeit less accurate) results.
+    The meta macros are only useful to the Unreal meta compiler and have no effect on the C++ code.
+
+We assume that Get-Project-CppStandard handles converting /std:c++xx to -std=c++xx.
+
+This function should only be called for a clang-tidy run, not a clang compilation.
+#>
+Function FixUnrealProjectArguments(
+    [Parameter(Mandatory = $true)] [ref] $preprocessorDefinitions,
+    [Parameter(Mandatory = $true)] [ref] $forceIncludes)
+{
+  if (!$UnrealProject) {
+    # Not an unreal project. Nothing to do.
+    return;
+  }
+
+  if ($forceIncludes.Value.Length -gt 1 -and $forceIncludes.Value[0].Contains("PCH")) {
+    # Swap the first two force includes for an unreal project. The first is the forced PCH
+    # which *should* be first, but causes a clang failure (invalid PCH) when it is first.
+    $temp = $forceIncludes.Value[0]
+    $forceIncludes.Value[0] = $forceIncludes.Value[1]
+    $forceIncludes.Value[1] = $temp
+  }
+
+  # For an unreal project we have to forcibly add a few things to make it work with clang-tidy
+  $preprocessorDefinitions.Value += @(
+    # Unreal engine is not set up for building with the clang compiler.
+    # Firstly, it's missing the built in function __builtin_ia32_tpause()
+    # We fake it so that it can do so for analysis purposes.
+    '-D__has_builtin(...)=1',
+    '-D__builtin_ia32_tpause(...)',
+    '-DFORCEINLINE',
+    # Unreal meta parser macros can prevent parsing when we don't have the correct includes.
+    # Let's fake them to ensure we can get some results. We can safely ignore them in this
+    # context. We handle not having the correct includes configured as that can be useful
+    # to get faster, though incomplete, results out of clang-tidy.
+    '-DGENERATED_BODY(...)=""',
+    '-DRIGVM_METHOD(...)=""'
+    '-DUCLASS(...)=""',
+    '-DUDELEGATE(...)=""',
+    '-DUE_DEPRECATED(...)=""',
+    '-DUENUM(...)=""',
+    '-DUFUNCTION(...)=""',
+    '-DUINTERFACE(...)=""',
+    '-DUMETA(...)=""',
+    '-DUPARAM(...)=""',
+    '-DUPROPERTY(...)=""',
+    '-DUSTRUCT(...)=""'
+  )
 }
