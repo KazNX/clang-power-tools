@@ -235,7 +235,6 @@ namespace ClangPowerTools
     /// <returns></returns>
     protected void GenerateDocumentationForProject(int commandId, AsyncPackage package)
     {
-      
       var jsonCompilationDatabasePath = PathConstants.JsonCompilationDBPath;
       string documentationOutoutePath = GenerateDocumentation.FindOutputFolderName(
         Path.Combine(new FileInfo(jsonCompilationDatabasePath).Directory.FullName,

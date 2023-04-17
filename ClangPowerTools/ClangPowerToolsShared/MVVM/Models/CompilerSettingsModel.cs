@@ -46,5 +46,7 @@ namespace ClangPowerTools
     public bool ShowSquiggles { get; set; } = false;
 
     public int CpuLimit { get; set; } = 100;
+
+    public bool UnrealProjects { get; set; } = false;
   }
 }

@@ -215,6 +215,10 @@ namespace ClangPowerTools
       // If ApplyTidy-Fix is enabled, switch command
       ChooseCommandIdDependingOnTidy(ref aCommandId);
 
+      bool showTiming = false;
+      var timer = new System.Diagnostics.Stopwatch();
+      timer.Start();
+
       switch (aCommandId)
       {
         case CommandIds.kFindViewMenuId:
@@ -294,6 +298,7 @@ namespace ClangPowerTools
 
             await TidyCommand.Instance.RunClangTidyAsync(CommandIds.kTidyId, aCommandUILocation);
             await TidyCommand.Instance.ShowTidyToolWindowEmptyAsync();
+            showTiming = true;
 
             OnAfterClangCommand();
             break;
@@ -314,6 +319,7 @@ namespace ClangPowerTools
 
             await TidyCommand.Instance.RunClangTidyAsync(CommandIds.kTidyToolWindowId,
                                                          aCommandUILocation, paths);
+            showTiming = true;
             OnAfterClangCommand();
             break;
           }
@@ -334,6 +340,7 @@ namespace ClangPowerTools
 
             await TidyCommand.Instance.RunClangTidyAsync(CommandIds.kTidyFixId, aCommandUILocation,
                                                          paths);
+            showTiming = true;
             OnAfterClangCommand();
             break;
           }
@@ -343,6 +350,7 @@ namespace ClangPowerTools
             OnBeforeClangCommand(CommandIds.kTidyFixId);
 
             await TidyCommand.Instance.RunClangTidyAsync(CommandIds.kTidyFixId, aCommandUILocation);
+            showTiming = true;
             OnAfterClangCommand();
             break;
           }
@@ -407,6 +415,12 @@ namespace ClangPowerTools
           }
         default:
           break;
+      }
+
+      timer.Stop();
+      if (showTiming)
+      {
+        OnClangCommandMessageTransfer(new ClangCommandMessageEventArgs($"{timer.Elapsed} elapsed", false));
       }
     }
 

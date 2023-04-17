@@ -59,6 +59,7 @@
 
     public string PowerShellScripts { get; } = "Manually update the PowerShell scripts used for running Clang commands.";
     public string AliasPowerShellScripts { get; } = "Manually add cpt alias in Windows PowerShell used for running Clang commands.";
+    public string UnrealProjects { get; } = "Enable Unreal Engine project detection.";
 
     #endregion
 

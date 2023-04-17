@@ -129,6 +129,9 @@ namespace ClangPowerTools.Script
       if (jsonCompilationDbActive)
         parameters.Append($" {ScriptConstants.kJsonCompilationDb}");
 
+      if (compilerSettings.UnrealProjects)
+        parameters.Append($" {ScriptConstants.kUnrealMode}");
+
       return parameters.ToString();
     }
 

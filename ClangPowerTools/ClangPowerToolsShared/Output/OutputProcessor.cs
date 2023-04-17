@@ -83,6 +83,25 @@ namespace ClangPowerTools.Output
 
     #region Private Methods
 
+    private static Regex[] IgnorePatterns = new Regex[] {
+      new Regex(@".*[\\/]Intermediate[\\/]Build[\\/].*\.h"),
+      new Regex(@".*[\\/]Engine[\\/]Source[\\/].*\.h"),
+    };
+
+    private bool IgnorePath(string path)
+    {
+      foreach (var pattern in IgnorePatterns)
+      {
+        if (pattern.IsMatch(path))
+        {
+          return true;
+        }
+      }
+
+      return false;
+    }
+
+
     private void GetOutputAndErrors(string aText, IVsHierarchy aHierarchy,
       out string aOutputText, out List<TaskErrorModel> aDetectedErrors, string parser)
     {
@@ -92,7 +111,7 @@ namespace ClangPowerTools.Output
       while (mErrorDetector.Detect(aText, parser, out Match aMatchResult))
       {
         var detectedError = GetDetectedError(aHierarchy, aMatchResult);
-        if (detectedError != null)
+        if (detectedError != null && !IgnorePath(detectedError.Document))
           aDetectedErrors.Add(detectedError);
 
         aOutputBuilder.Append(GetOutput(ref aText, aDetectedErrors.Count == 0 ? "" : aDetectedErrors.Last().FullMessage));
