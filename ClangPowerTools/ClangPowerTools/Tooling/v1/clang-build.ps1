@@ -105,6 +105,16 @@
 
       If not given, the first detected Visual Studio SKU will be used.
 
+.PARAMETER aUnrealMode
+      Alias 'unreal'. Enables handling of NMake projects as Unreal Engine projects. When specified,
+      automatic detection of Unreal Engine projects is allowed. Any NMake project which also
+      contains a source file ending ".Build.cs" is considered an Unreal Engine project.
+
+      When using clang-tidy on an Unreal project, additional macros definitions are made which allow
+      the Unreal meta parser preprocessor macros to be ignored.
+
+      Optional. If not given, defaults to false.
+
 .NOTES
     Author: Gabriel Diaconita
 #>
@@ -185,6 +195,10 @@ param( [alias("proj")]
        [Parameter(Mandatory=$false, HelpMessage="If present, specifies the type of documentation to generate, in the current working direcotory")]
        [ValidateSet("yaml", "md", "html")]
        [string]   $aDocumentationExportFormat
+      
+     , [alias("unreal")]
+       [Parameter(Mandatory=$false, HelpMessage="Allow NMake projects to be checked if they are Unreal Projects with special case handling with clang-tidy.")]
+       [switch]   $aUnrealMode
      )
 
 Set-StrictMode -version latest
@@ -634,10 +648,20 @@ Function Get-ClangIncludeDirectories( [Parameter(Mandatory=$false)][string[]] $i
 
   foreach ($includeDir in $includeDirectories)
   {
+    # Ignore dirs which don't exist. This reduces the command line length
+    if (![System.IO.Path]::Exists($includeDir))
+    {
+      continue
+    }
     $returnDirs += ("-isystem" + (Get-QuotedPath $includeDir))
   }
   foreach ($includeDir in $additionalIncludeDirectories)
   {
+    # Ignore dirs which don't exist. This reduces the command line length
+    if (![System.IO.Path]::Exists($includeDir))
+    {
+      continue
+    }
     if ($aTreatAdditionalIncludesAsSystemIncludes)
     {
       $returnDirs += ("-isystem" + (Get-QuotedPath $includeDir))
@@ -824,6 +848,12 @@ Function Get-TidyCallArguments( [Parameter(Mandatory=$false)][string[]] $preproc
                                                         -ChildPath ([guid]::NewGuid().ToString() + $kExtensionYaml)
       $tidyArgs += $kClangTidyFixExportFixes + @((Get-QuotedPath $tidyFixReplacementYamlPath))
     }
+  }
+  
+  # Hack: Fix unreal project macros and force include order
+  if ($aUnrealMode -and (VariableExists "UnrealProject") -and $UnrealProject)
+  {
+    FixUnrealProjectArguments ([ref]$preprocessorDefinitions) ([ref]$forceIncludeFiles)
   }
 
   $tidyArgs += (Get-QuotedPath $fileToTidy)
@@ -1522,7 +1552,11 @@ Function Process-Project( [Parameter(Mandatory=$true)] [string]       $vcxprojPa
     }
 
     [string[]] $cppForceIncludes = Get-FileForceIncludes -fileFullName $cpp
+    [string[]] $fileAdditionalIncludeDirectories = Get-FileAdditionalIncludes -fileFullName $cpp
     [string] $exeToCall = Get-ExeToCall -workloadType $workloadType
+
+    # Merge file includes with project includes.
+    $additionalIncludeDirectories = $additionalIncludeDirectories + $fileAdditionalIncludeDirectories | Select-Object -Unique
 
     [string] $finalPchPath = $pchFilePath
     if ($cppPchSetting -ieq 'NotUsing')

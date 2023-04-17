@@ -660,7 +660,7 @@ Function FixUnrealProjectArguments(
     # context. We handle not having the correct includes configured as that can be useful
     # to get faster, though incomplete, results out of clang-tidy.
     '-DGENERATED_BODY(...)=""',
-    '-DRIGVM_METHOD(...)=""'
+    '-DRIGVM_METHOD(...)=""',
     '-DUCLASS(...)=""',
     '-DUDELEGATE(...)=""',
     '-DUE_DEPRECATED(...)=""',
