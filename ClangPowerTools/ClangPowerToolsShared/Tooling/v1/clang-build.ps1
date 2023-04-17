@@ -105,6 +105,16 @@
 
       If not given, the first detected Visual Studio SKU will be used.
 
+.PARAMETER aUnrealMode
+      Alias 'unreal'. Enables handling of NMake projects as Unreal Engine projects. When specified,
+      automatic detection of Unreal Engine projects is allowed. Any NMake project which also
+      contains a source file ending ".Build.cs" is considered an Unreal Engine project.
+
+      When using clang-tidy on an Unreal project, additional macros definitions are made which allow
+      the Unreal meta parser preprocessor macros to be ignored.
+
+      Optional. If not given, defaults to false.
+
 .NOTES
     Author: Gabriel Diaconita
 #>
@@ -185,6 +195,10 @@ param( [alias("proj")]
        [Parameter(Mandatory=$false, HelpMessage="If present, specifies the type of documentation to generate, in the current working direcotory")]
        [ValidateSet("yaml", "md", "html")]
        [string]   $aDocumentationExportFormat
+      
+     , [alias("unreal")]
+       [Parameter(Mandatory=$false, HelpMessage="Allow NMake projects to be checked if they are Unreal Projects with special case handling with clang-tidy.")]
+       [switch]   $aUnrealMode
      )
 
 Set-StrictMode -version latest
@@ -837,7 +851,7 @@ Function Get-TidyCallArguments( [Parameter(Mandatory=$false)][string[]] $preproc
   }
   
   # Hack: Fix unreal project macros and force include order
-  if ((VariableExists "UnrealProject") -and $UnrealProject)
+  if ($aUnrealMode -and (VariableExists "UnrealProject") -and $UnrealProject)
   {
     FixUnrealProjectArguments ([ref]$preprocessorDefinitions) ([ref]$forceIncludeFiles)
   }
