@@ -15,6 +15,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 
@@ -114,6 +115,10 @@ namespace ClangPowerTools.Output
     {
       if (string.IsNullOrWhiteSpace(aMessage))
         return;
+
+      // The powershell terminal can yield unprintable characters, especially for colour changes.
+      // clean up the message before display. We may also make some newline adjustments.
+      aMessage = CleanMessage(aMessage);
 
       mutex.WaitOne();
       var outputWindow = outputWindowBuilder.GetResult();
@@ -316,6 +321,25 @@ namespace ClangPowerTools.Output
       HasEncodingErrorEvent?.Invoke(this, new HasEncodingErrorEventArgs(outputContent));
     }
 
+    /// <summary>
+    /// Clean up message, removing non-printable characters and excess newline characters.
+    /// </summary>
+    /// <param name="aMessage">The message string to clean up.</param>
+    /// <returns>A cleaner version of <paramref name="aMessage"/>.</returns>
+    /// <remarks>
+    /// Clean up operations:
+    /// <list type="bullet">
+    /// <item>Remove non-printable characters.</item>
+    /// <item>Remove leading and trailing newline characters.</item>
+    /// </list>
+    /// </remarks>
+    public static string CleanMessage(string aMessage)
+    {
+      aMessage = aMessage.Trim(new char[] { '\r', '\n' });
+      return cleanPattern.Replace(aMessage, "");
+    }
+
+    private static Regex cleanPattern = new Regex(@"\u001b\[[0-9;]{1,4}m");
     #endregion
 
   }
