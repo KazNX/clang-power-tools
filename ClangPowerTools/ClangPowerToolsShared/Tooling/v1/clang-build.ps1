@@ -404,7 +404,7 @@ cpt:ensureScriptExists "get-llvm.ps1" $shouldRedownloadForcefully | Out-Null
 #-------------------------------------------------------------------------------------------------
 # we may have a custom path for Clang-Tidy. Use it if that's the case.
 
-[string] $customTidyPath = (Get-QuotedPath -path ([Environment]::GetEnvironmentVariable($kVarEnvClangTidyPath)))
+[string] $customTidyPath = [Environment]::GetEnvironmentVariable($kVarEnvClangTidyPath)
 if (![string]::IsNullOrWhiteSpace($customTidyPath))
 {
   Set-Variable -name kClangTidy                         -value $customTidyPath                    -option Constant
@@ -1557,6 +1557,8 @@ Function Process-Project( [Parameter(Mandatory=$true)] [string]       $vcxprojPa
     [string[]] $cppForceIncludes = Get-FileForceIncludes -fileFullName $cpp
     [string[]] $fileAdditionalIncludeDirectories = Get-FileAdditionalIncludes -fileFullName $cpp
     [string] $exeToCall = Get-ExeToCall -workloadType $workloadType
+    # Ensure exe is quoted in case its path contains spaces.
+    $exeToCall = Get-QuotedPath -path $exeToCall
 
     # Merge file includes with project includes.
     $additionalIncludeDirectories = $additionalIncludeDirectories + $fileAdditionalIncludeDirectories | Select-Object -Unique
