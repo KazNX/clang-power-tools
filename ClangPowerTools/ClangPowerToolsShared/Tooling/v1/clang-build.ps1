@@ -708,25 +708,49 @@ Function Generate-Pch( [Parameter(Mandatory=$true)] [string]   $stdafxDir
                      , [Parameter(Mandatory=$false)][string[]] $includeDirectories
                      , [Parameter(Mandatory=$false)][string[]] $additionalIncludeDirectories
                      , [Parameter(Mandatory=$true)] [string]   $stdafxHeaderName
-                     , [Parameter(Mandatory=$false)][string[]] $preprocessorDefinitions)
+                     , [Parameter(Mandatory=$false)][string[]] $preprocessorDefinitions
+                     , [Parameter(Mandatory=$false)][switch]   $checkModified)
 {
   [string] $stdafxSource = (Canonize-Path -base $stdafxDir -child $stdafxHeaderName)
   [string] $stdafx = $stdafxSource + ".hpp"
+  [string] $stdafxPch = "$stdafx$kExtensionClangPch"
+
+  if ($checkModified)
+  {
+    # Don't compile if the pch output is newer than the header file.
+    if ([System.IO.File]::Exists($stdafxPch))
+    {
+      # Output file exists. Check date modified.
+      $pchModifiedOut = [System.IO.File]::GetLastWriteTime($stdafxPch)
+      $pchModifiedIn = [System.IO.File]::GetLastWriteTime($stdafxHeaderName)
+      if ($pchModifiedIn -le $pchModifiedOut)
+      {
+        # Up to date. Skip compile
+        return $stdafxPch
+      }
+    }
+  }
 
   # Clients using Perforce will have their source checked-out as readonly files, so the 
   # PCH copy would be, by-default, readonly as well, which would present problems. Make sure to remove the RO attribute.
   Copy-Item -LiteralPath $stdafxSource -Destination $stdafx -PassThru | Set-ItemProperty -name isreadonly -Value $false
-
-  $global:FilesToDeleteWhenScriptQuits.Add($stdafx) > $null
-
-  [string] $vcxprojShortName = [System.IO.Path]::GetFileNameWithoutExtension($global:vcxprojPath);
-  [string] $stdafxPch = (Join-Path -path (Get-SourceDirectory) `
-                                   -ChildPath "$vcxprojShortName$kExtensionClangPch")
   Remove-Item -LiteralPath "$stdafxPch" -ErrorAction SilentlyContinue > $null
 
-  $global:FilesToDeleteWhenScriptQuits.Add($stdafxPch) > $null
+  if (!$checkModified)
+  {
+    $global:FilesToDeleteWhenScriptQuits.Add($stdafx) > $null
+    $global:FilesToDeleteWhenScriptQuits.Add($stdafxPch) > $null
+  }
 
   [string] $languageFlag = (Get-ProjectFileLanguageFlag -fileFullName $stdafxCpp)
+
+  # Hack: Fix unreal project macros.
+  if ($aUnrealMode -and (VariableExists "UnrealProject") -and $UnrealProject)
+  {
+    # We haven't collected any force includes, so we provide a dummy list.
+    [string[]] $forceIncludeFiles = @()
+    FixUnrealProjectArguments ([ref]$preprocessorDefinitions) ([ref]$forceIncludeFiles)
+  }
 
   [string[]] $compilationFlags = @((Get-QuotedPath $stdafx)
                                   ,$kClangFlagMinusO
@@ -747,7 +771,7 @@ Function Generate-Pch( [Parameter(Mandatory=$true)] [string]   $stdafxDir
                                                    -additionalIncludeDirectories $additionalIncludeDirectories
 
   # Remove empty arguments from the list because Start-Process will complain
-  $compilationFlags = $compilationFlags | Where-Object { $_ } | Select -Unique
+  $compilationFlags = $compilationFlags | Where-Object { $_ } | Select-Object -Unique
 
   [string] $exeToCallVerbosePath  = $kClangCompiler
   if (![string]::IsNullOrWhiteSpace($global:llvmLocation))
@@ -776,10 +800,69 @@ Function Generate-Pch( [Parameter(Mandatory=$true)] [string]   $stdafxDir
   {
     return $stdafxPch
   }
-  else
+
+  return ""
+}
+
+<#
+.DESCRIPTION
+Generate a precompiled header file for the specified header file.
+
+This blocks while the compilation is performed.
+
+Returns the file name of the generated PCH file.
+
+.PARAMETER pchHeaderName
+  The name of the PCH file as referenced in the /Yu compiler option.
+  This may be the same as $pchFilePath
+
+.PARAMETER pchFilePath
+  The full path to the PCH file. 
+
+.PARAMETER projectFiles
+  List of current project files. Used to locate the file which is compiled to generate the PCH.
+#>
+Function CompilePchOnDemand([Parameter(Mandatory)][string] $pchHeaderName,
+                            [Parameter(Mandatory)] [string] $pchFilePath,
+                            [Parameter(Mandatory)][string[]] $projectFiles)
+{
+  # Locate the source file for the PCH file.
+  [string] $pchSourceFile = Find-PchSourceFile -pchHeaderName $pchHeaderName  `
+                                               -pchFilePath $pchFilePath      `
+                                               -projectFiles $projectFiles
+
+  if ([string]::IsNullOrEmpty($pchSourceFile))
   {
+    # Failed to resolve a rouce file for this PCH header.
     return ""
   }
+
+  [string[]] $includeDirectories = @(Get-ProjectIncludeDirectories)
+  [string[]] $additionalIncludeDirectories = @(Get-ProjectAdditionalIncludes)
+
+  # Add file specific additional include directories.
+  $additionalIncludeDirectories += Get-FileAdditionalIncludes -fileFullName $pchSourceFile
+
+  $pchDir = Get-ProjectStdafxDir -pchHeaderName                $pchHeaderName      `
+                                 -includeDirectories           $includeDirectories `
+                                 -additionalIncludeDirectories $additionalIncludeDirectories
+
+  Write-Verbose "Generating PCH..."
+  $pchFilePath = Generate-Pch -stdafxDir        $pchDir         `
+                              -stdafxCpp        $pchSourceFile  `
+                              -stdafxHeaderName $pchHeaderName  `
+                              -preprocessorDefinitions $preprocessorDefinitions `
+                              -includeDirectories $includeDirectories `
+                              -additionalIncludeDirectories $additionalIncludeDirectories `
+                              -checkModified
+  Write-Verbose "PCH: $pchFilePath"
+  if ([string]::IsNullOrEmpty($pchFilePath) -and $aContinueOnError)
+  {
+    Write-Output "Skipping project. Reason: cannot create PCH."
+    return ""
+  }
+  Write-InformationTimed "Created PCH"
+  return $pchFilePath
 }
 
 Function Get-ExeToCall([Parameter(Mandatory=$true)][WorkloadType] $workloadType)
@@ -838,6 +921,8 @@ Function Get-TidyCallArguments( [Parameter(Mandatory=$false)][string[]] $preproc
                               , [Parameter(Mandatory=$false)][string]  $pchFilePath
                               , [Parameter(Mandatory=$false)][switch]  $fix)
 {
+  # 1. resolve PCH for the target file before calling this function.
+  # 2. for Unreal mode, check $forceIncludeFiles for the PCH file and remove it.
   [string[]] $tidyArgs = @()
   if ($fix)
   {
@@ -853,7 +938,17 @@ Function Get-TidyCallArguments( [Parameter(Mandatory=$false)][string[]] $preproc
   # Hack: Fix unreal project macros and force include order
   if ($aUnrealMode -and (VariableExists "UnrealProject") -and $UnrealProject)
   {
-    FixUnrealProjectArguments ([ref]$preprocessorDefinitions) ([ref]$forceIncludeFiles)
+    # Strip .hpp.clang.pch from $pchFilePath
+    $pchHpp = $pchFilePath
+    if ($pchHpp.EndsWith($kExtensionClangPch))
+    {
+      $pchHpp = $pchHpp.Substring(0, $pchHpp.Length - $kExtensionClangPch.Length)
+      if ($pchHpp.EndsWith(".hpp"))
+      {
+        $pchHpp = $pchHpp.Substring(0, $pchHpp.Length - 4)
+      }
+    }
+    FixUnrealProjectArguments ([ref]$preprocessorDefinitions) ([ref]$forceIncludeFiles) $pchHpp
   }
 
   $tidyArgs += (Get-QuotedPath $fileToTidy)
@@ -1347,80 +1442,87 @@ Function Process-Project( [Parameter(Mandatory=$true)] [string]       $vcxprojPa
   $global:cptFilesToProcess = $global:projectAllCpps # reset to full project cpp list
   
   #-----------------------------------------------------------------------------------------------
-  # LOCATE STDAFX.H DIRECTORY
+  # Setup for precompiled header compilation. First track whether it's allowed or not.
 
-  [string] $stdafxCpp    = ""
-  [string] $stdafxDir    = ""
-  [string] $stdafxHeader = ""
-  [string] $stdafxHeaderFullPath = ""
+  # JSON Compilation Database file will outlive this execution run, while the PCH is temporary
+  # so we disable PCH creation for that case.
+  # Otherwise PCH usage is allowed, but we will determine a PCH for each file
+  [bool] $pchAllowed = !$aExportJsonDB
 
-  [bool] $kPchIsNeeded = $global:cptFilesToProcess.Keys.Count -ge 2
-  if ($kPchIsNeeded)
-  {
-    # if we have only one rooted file in the script parameters, then we don't need to detect PCH
-    if ($aCppToCompile.Count -eq 1 -and [System.IO.Path]::IsPathRooted($aCppToCompile[0]))
-    {
-      $kPchIsNeeded = $false
-    }
-  }
+  # #-----------------------------------------------------------------------------------------------
+  # # @@@ Old PCH handling begin
 
-  foreach ($projCpp in $global:cptFilesToProcess.Keys)
-  {
-    if ( (Get-ProjectFileSetting -fileFullName $projCpp -propertyName 'PrecompiledHeader') -ieq 'Create')
-    {
-      $stdafxCpp = $projCpp
-    }
-  }
+  # # LOCATE STDAFX.H DIRECTORY
 
-  if (![string]::IsNullOrEmpty($stdafxCpp))
-  {
-    Write-Verbose "PCH cpp name: $stdafxCpp"
+  # [string] $stdafxCpp    = ""
+  # [string] $stdafxDir    = ""
+  # [string] $stdafxHeader = ""
+  # [string] $stdafxHeaderFullPath = ""
 
-    if ($forceIncludeFiles.Count -gt 0)
-    {
-      $stdafxHeader = $forceIncludeFiles[0]
-    }
+  # [bool] $kPchIsNeeded = $global:cptFilesToProcess.Keys.Count -ge 2
+  # if ($kPchIsNeeded)
+  # {
+  #   # if we have only one rooted file in the script parameters, then we don't need to detect PCH
+  #   if ($aCppToCompile.Count -eq 1 -and [System.IO.Path]::IsPathRooted($aCppToCompile[0]))
+  #   {
+  #     # FIXME(Kaz): this is not correct for Unreal projects.
+  #     $kPchIsNeeded = $false
+  #   }
+  # }
 
-    if (!$stdafxHeader)
-    {
-      $stdafxHeader = Get-PchCppIncludeHeader -pchCppFile $stdafxCpp
-    }
+  # # For PCH handling start by getting the project level precompiled header file.
+  # # FIXME(Kaz): alternative detection method for Unreal projects.
+  # $stdafxCpp = Get-ProjectPrecompiledHeaderSource -projectFiles $global:cptFilesToProcess.Keys
 
-    if (!$stdafxHeader)
-    {
-      try
-      {
-        $stdafxHeader = Get-ProjectFileSetting -fileFullName $stdafxCpp -propertyName 'PrecompiledHeaderFile'
-      }
-      catch {}
-    }
+  # if (![string]::IsNullOrEmpty($stdafxCpp))
+  # {
+  #   Write-Verbose "PCH cpp name: $stdafxCpp"
 
-    Write-Verbose "PCH header name: $stdafxHeader"
-    $stdafxDir = Get-ProjectStdafxDir -pchHeaderName                $stdafxHeader       `
-                                      -includeDirectories           $includeDirectories `
-                                      -additionalIncludeDirectories $additionalIncludeDirectories
-  }
+  #   if ($forceIncludeFiles.Count -gt 0)
+  #   {
+  #     $stdafxHeader = $forceIncludeFiles[0]
+  #   }
 
-  if ([string]::IsNullOrEmpty($stdafxDir))
-  {
-    Write-Verbose ("No PCH information for this project!")
-    $kPchIsNeeded = $false
-  }
-  else
-  {
-    Write-Verbose ("PCH directory: $stdafxDir")
+  #   if (!$stdafxHeader)
+  #   {
+  #     $stdafxHeader = Get-PchCppIncludeHeader -pchCppFile $stdafxCpp
+  #   }
 
-    $includeDirectories = @(Remove-PathTrailingSlash -path $stdafxDir) + $includeDirectories
+  #   if (!$stdafxHeader)
+  #   {
+  #     try
+  #     {
+  #       $stdafxHeader = Get-ProjectFileSetting -fileFullName $stdafxCpp -propertyName 'PrecompiledHeaderFile'
+  #     }
+  #     catch {}
+  #   }
 
-    $stdafxHeaderFullPath = Canonize-Path -base $stdafxDir -child $stdafxHeader -ignoreErrors
+  #   Write-Verbose "PCH header name: $stdafxHeader"
+  #   $stdafxDir = Get-ProjectStdafxDir -pchHeaderName                $stdafxHeader       `
+  #                                     -includeDirectories           $includeDirectories `
+  #                                     -additionalIncludeDirectories $additionalIncludeDirectories
+  # }
 
-    if (!$kPchIsNeeded)
-    {
-      Write-Verbose "PCH is disabled for this project. Will not generate."
-    }
-  }
+  # if ([string]::IsNullOrEmpty($stdafxDir))
+  # {
+  #   Write-Verbose ("No PCH information for this project!")
+  #   $kPchIsNeeded = $false
+  # }
+  # else
+  # {
+  #   Write-Verbose ("PCH directory: $stdafxDir")
+
+  #   $includeDirectories = @(Remove-PathTrailingSlash -path $stdafxDir) + $includeDirectories
+
+  #   $stdafxHeaderFullPath = Canonize-Path -base $stdafxDir -child $stdafxHeader -ignoreErrors
+
+  #   if (!$kPchIsNeeded)
+  #   {
+  #     Write-Verbose "PCH is disabled for this project. Will not generate."
+  #   }
+  # }
   
-  Write-InformationTimed "Detected PCH information"
+  # Write-InformationTimed "Detected PCH information"
 
 
   #-----------------------------------------------------------------------------------------------
@@ -1444,7 +1546,8 @@ Function Process-Project( [Parameter(Mandatory=$true)] [string]       $vcxprojPa
     [bool] $dirtyStdafx = $false
     foreach ($cpp in $aCppToCompile)
     {
-      if ($cpp -ieq $stdafxHeaderFullPath)
+      # if ($cpp -ieq $stdafxHeaderFullPath)
+      if ( (Get-ProjectFileSetting -fileFullName $cpp -propertyName 'PrecompiledHeader') -ieq 'Create')
       {
         # stdafx modified => compile all
         $dirtyStdafx = $true
@@ -1484,37 +1587,38 @@ Function Process-Project( [Parameter(Mandatory=$true)] [string]       $vcxprojPa
 
   Write-Verbose ("Processing " + $global:cptFilesToProcess.Count + " cpps")
 
+  # #-----------------------------------------------------------------------------------------------
+  # # CREATE PCH IF NEED BE, ONLY FOR TWO CPPS OR MORE
+  # #
+  # # JSON Compilation Database file will outlive this execution run, while the PCH is temporary 
+  # # so we disable PCH creation for that case as well.
+
+  # if ($kPchIsNeeded -and $global:cptFilesToProcess.Count -lt 2)
+  # {
+  #   $kPchIsNeeded = $false
+  # }
+
+  # [string] $pchFilePath = ""
+  # if ($kPchIsNeeded -and !$aExportJsonDB)
+  # {
+  #   # COMPILE PCH
+  #   Write-Verbose "Generating PCH..."
+  #   $pchFilePath = Generate-Pch -stdafxDir        $stdafxDir    `
+  #                               -stdafxCpp        $stdafxCpp    `
+  #                               -stdafxHeaderName $stdafxHeader `
+  #                               -preprocessorDefinitions $preprocessorDefinitions `
+  #                               -includeDirectories $includeDirectories `
+  #                               -additionalIncludeDirectories $additionalIncludeDirectories
+  #   Write-Verbose "PCH: $pchFilePath"
+  #   if ([string]::IsNulOrEmpty($pchFilePath) -and $aContinueOnError)
+  #   {
+  #     Write-Output "Skipping project. Reason: cannot create PCH."
+  #     return
+  #   }
+  #   Write-InformationTimed "Created PCH"
+  # }  
+
   #-----------------------------------------------------------------------------------------------
-  # CREATE PCH IF NEED BE, ONLY FOR TWO CPPS OR MORE
-  #
-  # JSON Compilation Database file will outlive this execution run, while the PCH is temporary 
-  # so we disable PCH creation for that case as well.
-
-  if ($kPchIsNeeded -and $global:cptFilesToProcess.Count -lt 2)
-  {
-    $kPchIsNeeded = $false
-  }
-
-  [string] $pchFilePath = ""
-  if ($kPchIsNeeded -and !$aExportJsonDB)
-  {
-    # COMPILE PCH
-    Write-Verbose "Generating PCH..."
-    $pchFilePath = Generate-Pch -stdafxDir        $stdafxDir    `
-                                -stdafxCpp        $stdafxCpp    `
-                                -stdafxHeaderName $stdafxHeader `
-                                -preprocessorDefinitions $preprocessorDefinitions `
-                                -includeDirectories $includeDirectories `
-                                -additionalIncludeDirectories $additionalIncludeDirectories
-    Write-Verbose "PCH: $pchFilePath"
-    if ([string]::IsNullOrEmpty($pchFilePath) -and $aContinueOnError)
-    {
-      Write-Output "Skipping project. Reason: cannot create PCH."
-      return
-    }
-    Write-InformationTimed "Created PCH"
-  }  
-
   if ($kCacheRepositorySaveIsNeeded)
   {
     Write-InformationTimed "Before serializing project"
@@ -1545,13 +1649,72 @@ Function Process-Project( [Parameter(Mandatory=$true)] [string]       $vcxprojPa
     }
   }
 
+  # Use $pchCache to track which PCH files have been compiled. 
+  $pchCache = @{}
   foreach ($cpp in $global:cptFilesToProcess.Keys)
   {
-    [string] $cppPchSetting = Get-ProjectFileSetting -propertyName 'PrecompiledHeader' -fileFullName $cpp -defaultValue 'Use'
-
-    if ($cppPchSetting -ieq 'Create')
+    # The PCH the current file wants to use.
+    [string] $currentPchSpec = ''
+    [string] $cppPchSetting = 'NotUsing'
+    if ($pchAllowed)
     {
-        continue # no point in compiling the PCH CPP
+      if (!(Is-NMakeProject))
+      {
+        # We have an MSBuild project, not an NMake project.
+        # Check PrecompiledHeader settings for this file.
+        $cppPchSetting = Get-ProjectFileSetting -propertyName 'PrecompiledHeader' -fileFullName $cpp -defaultValue 'NotUsing'
+
+        if ($cppPchSetting -ieq 'Create')
+        {
+          # This source file is used to generate the PCH. Skip it in favour of PCH compilation on demand.
+          continue
+        }
+
+        # Check if this source file uses a PCH
+        if ($cppPchSetting -ieq 'Use')
+        {
+          # This file uses a PCH. Get the file name from the PrecompiledHeaderFile property.
+          $currentPchSpec = Get-ProjectFileSetting -propertyName 'PrecompiledHeaderFile' -fileFullName $cpp -defaultValue ''
+        }
+        else
+        {
+          Write-Verbose "`n[PCH] Will ignore precompiled headers for $cpp`n"
+        }
+      }
+      else
+      {
+        # NMake properties don't have PrecompiledHeader properties, but they may have /Yc (create) or
+        # /Yu (use) compile options.
+        $currentPchSpec = Get-FilePrecompiledHeader -fileFullName $cpp
+      }
+    }
+
+    [string] $finalPchPath = ''
+    if (![string]::IsNullOrEmpty($currentPchSpec))
+    {
+      # This file uses a precompiled header. Make sure it has been generated.
+      # Fixup PCH path.
+      [string] $pchDir = Get-ProjectStdafxDir -pchHeaderName $currentPchSpec
+      [string] $pchFilePath = $currentPchSpec
+      if (![System.IO.Path]::IsPathFullyQualified($pchFilePath))
+      {
+        $pchFilePath = [System.IO.Path]::Combine($pchDir, $pchFilePath)
+      }
+      if (!($pchCache.ContainsKey($pchFilePath)))
+      {
+        # Block while we compile a PCH and add to the cache.
+        # If compilation fails, then $finalPchPath will be empty and we'll fallback to not using
+        # a PCH for this file.
+        $finalPchPath = CompilePchOnDemand -pchHeaderName $currentPchSpec `
+                                           -pchFilePath $pchFilePath      `
+                                           -projectFiles $global:cptFilesToProcess.Keys
+        $pchCache[$pchFilePath] = $finalPchPath
+      }
+      else
+      {
+        # PCH already processed. Extract final path from cache.
+        $finalPchPath = $pchCache[$pchFilePath]
+      }
     }
 
     [string[]] $cppForceIncludes = Get-FileForceIncludes -fileFullName $cpp
@@ -1562,13 +1725,6 @@ Function Process-Project( [Parameter(Mandatory=$true)] [string]       $vcxprojPa
 
     # Merge file includes with project includes.
     $additionalIncludeDirectories = $additionalIncludeDirectories + $fileAdditionalIncludeDirectories | Select-Object -Unique
-
-    [string] $finalPchPath = $pchFilePath
-    if ($cppPchSetting -ieq 'NotUsing')
-    {
-      $finalPchPath = ""
-      Write-Verbose "`n[PCH] Will ignore precompiled headers for $cpp`n"
-    }
 
     [string] $exeArgs   = Get-ExeCallArguments -workloadType            $workloadType `
                                                -pchFilePath             $finalPchPath `
