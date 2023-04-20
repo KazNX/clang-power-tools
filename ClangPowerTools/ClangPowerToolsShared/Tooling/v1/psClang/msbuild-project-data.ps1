@@ -809,11 +809,17 @@ provided $forceIncludes.Value[0] exactly matches pchFilePath. clang-tidy must th
 "-include-pch" targetting the clang generated output for this PCH header. Note this is the path to
 the original header. It is not the .hpp file used to generate the clang header, nor is it the
 .clang.pch file.
+
+.PARAMETER disableMacroWarning
+When present, disable the macro redefinition warning. This is useful for suppressing PCH generation
+errors for UE PCH files because we deliberately redefine __has_builtin to get UE to compile with
+clang-tidy. It's a workaround.
 #>
 Function FixUnrealProjectArguments(
     [Parameter(Mandatory = $true)] [ref] $preprocessorDefinitions,
     [Parameter(Mandatory = $true)] [ref] $forceIncludes,
-    [string]$pchFilePath = "")
+    [Parameter(Mandatory = $false)][string] $pchFilePath = "",
+    [Parameter(Mandatory = $false)][switch] $disableMacroWarning)
 {
   if (!$UnrealProject) {
     # Not an unreal project. Nothing to do.
@@ -845,6 +851,13 @@ Function FixUnrealProjectArguments(
       $forceIncludes.Value[0] = $forceIncludes.Value[1]
       $forceIncludes.Value[1] = $temp
     }
+  }
+
+  if ($disableMacroWarning)
+  {
+    # Disable macro redefinition warnings. We are redefining __has_builtin, which is dodgy, but
+    # works in the Unreal case.
+    $preprocessorDefinitions.Value += @('-Wno-builtin-macro-redefined')
   }
 
   # For an unreal project we have to forcibly add a few things to make it work with clang-tidy

@@ -115,6 +115,16 @@
 
       Optional. If not given, defaults to false.
 
+.PARAMETER aPchCache
+      Alias 'pch-cache'. Allows caching of the clang generated precompiled header files. Normally,
+      PCH files are only generated when targetting more than one file on the assumption that this
+      improves compilation time for more than one file. The generated PCH files are removed when
+      this script completes. This option allows a PCH file to be generated for only one target
+      file and the PCH is not removed on exit, allowing it to be used again next time, provided it
+      is not out of date. This value may optionally be set to "clean" which always regenerates the
+      PCH even when PCH files are up to date. Valid values are "true" (implied), "false" (default)
+      and "clean". PCH files are never generated when aExportJsonDB is present.
+
 .NOTES
     Author: Gabriel Diaconita
 #>
@@ -199,7 +209,13 @@ param( [alias("proj")]
      , [alias("unreal")]
        [Parameter(Mandatory=$false, HelpMessage="Allow NMake projects to be checked if they are Unreal Projects with special case handling with clang-tidy.")]
        [switch]   $aUnrealMode
-     )
+
+     , [alias("pch-cache")]
+       [Parameter(Mandatory=$false, HelpMessage="PCH caching mode.")]
+       [ValidateNotNullOrEmpty()]
+       [ValidateSet('Off','On','Clean')]
+       [string] $aPchCache = 'Off'
+      )
 
 Set-StrictMode -version latest
 $ErrorActionPreference = 'Continue'
@@ -211,6 +227,14 @@ Set-Variable -name kCptGithubRepoBase -value `
 "https://raw.githubusercontent.com/Caphyon/clang-power-tools/master/ClangPowerTools/ClangPowerToolsShared/Tooling/v1/" `
                                       -option Constant
 Set-Variable -name kPsMajorVersion    -value (Get-Host).Version.Major   -Option Constant 
+
+enum PchCache
+{
+  Off
+  On
+  Clean
+}
+
 # ------------------------------------------------------------------------------------------------
 # Return Value Constants
 
@@ -709,13 +733,15 @@ Function Generate-Pch( [Parameter(Mandatory=$true)] [string]   $stdafxDir
                      , [Parameter(Mandatory=$false)][string[]] $additionalIncludeDirectories
                      , [Parameter(Mandatory=$true)] [string]   $stdafxHeaderName
                      , [Parameter(Mandatory=$false)][string[]] $preprocessorDefinitions
-                     , [Parameter(Mandatory=$false)][switch]   $checkModified)
+                     , [Parameter(Mandatory=$false)][PchCache] $pchCache = [PchCache]::Off)
 {
   [string] $stdafxSource = (Canonize-Path -base $stdafxDir -child $stdafxHeaderName)
   [string] $stdafx = $stdafxSource + ".hpp"
   [string] $stdafxPch = "$stdafx$kExtensionClangPch"
 
-  if ($checkModified)
+  # Check date modified if PCH cache mode is On. We can't use cached files when its Off (don't use)
+  # or Clean (regenerate)
+  if ($pchCache -ieq [PchCache]::On)
   {
     # Don't compile if the pch output is newer than the header file.
     if ([System.IO.File]::Exists($stdafxPch))
@@ -736,7 +762,8 @@ Function Generate-Pch( [Parameter(Mandatory=$true)] [string]   $stdafxDir
   Copy-Item -LiteralPath $stdafxSource -Destination $stdafx -PassThru | Set-ItemProperty -name isreadonly -Value $false
   Remove-Item -LiteralPath "$stdafxPch" -ErrorAction SilentlyContinue > $null
 
-  if (!$checkModified)
+  # Mark files for clean up if PchCache is Off
+  if ($pchCache -ieq [PchCache]::Off)
   {
     $global:FilesToDeleteWhenScriptQuits.Add($stdafx) > $null
     $global:FilesToDeleteWhenScriptQuits.Add($stdafxPch) > $null
@@ -749,7 +776,9 @@ Function Generate-Pch( [Parameter(Mandatory=$true)] [string]   $stdafxDir
   {
     # We haven't collected any force includes, so we provide a dummy list.
     [string[]] $forceIncludeFiles = @()
-    FixUnrealProjectArguments ([ref]$preprocessorDefinitions) ([ref]$forceIncludeFiles)
+    FixUnrealProjectArguments -preprocessorDefinitions ([ref]$preprocessorDefinitions) `
+                              -forceIncludes ([ref]$forceIncludeFiles)                 `
+                              -disableMacroWarning
   }
 
   [string[]] $compilationFlags = @((Get-QuotedPath $stdafx)
@@ -821,10 +850,16 @@ Returns the file name of the generated PCH file.
 
 .PARAMETER projectFiles
   List of current project files. Used to locate the file which is compiled to generate the PCH.
+
+.PARAMETER pchCache
+  PCH caching mode. When Off we always regenerate the PCH and clean it up on exit. When Clean, we
+  regenerate the PCH and leave it on disc. When On, we (re)generate the PCH based on date modified
+  and leave it on disc.
 #>
 Function CompilePchOnDemand([Parameter(Mandatory)][string] $pchHeaderName,
                             [Parameter(Mandatory)] [string] $pchFilePath,
-                            [Parameter(Mandatory)][string[]] $projectFiles)
+                            [Parameter(Mandatory)][string[]] $projectFiles,
+                            [PchCache] $pchCache = [PchCache]::Off)
 {
   # Locate the source file for the PCH file.
   [string] $pchSourceFile = Find-PchSourceFile -pchHeaderName $pchHeaderName  `
@@ -854,7 +889,7 @@ Function CompilePchOnDemand([Parameter(Mandatory)][string] $pchHeaderName,
                               -preprocessorDefinitions $preprocessorDefinitions `
                               -includeDirectories $includeDirectories `
                               -additionalIncludeDirectories $additionalIncludeDirectories `
-                              -checkModified
+                              -pchCache $pchCache
   Write-Verbose "PCH: $pchFilePath"
   if ([string]::IsNullOrEmpty($pchFilePath) -and $aContinueOnError)
   {
@@ -1449,6 +1484,13 @@ Function Process-Project( [Parameter(Mandatory=$true)] [string]       $vcxprojPa
   # Otherwise PCH usage is allowed, but we will determine a PCH for each file
   [bool] $pchAllowed = !$aExportJsonDB
 
+  # Additionally, only allow PCH generation when caching is enabled or when processing more than
+  # one file.
+  if ($pchAllowed -and $aPchCache -ieq [PchCache]::Off -and $aCppToCompile.Count -eq 1)
+  {
+    $pchAllowed = $false
+  }
+
   # #-----------------------------------------------------------------------------------------------
   # # @@@ Old PCH handling begin
 
@@ -1490,11 +1532,7 @@ Function Process-Project( [Parameter(Mandatory=$true)] [string]       $vcxprojPa
 
   #   if (!$stdafxHeader)
   #   {
-  #     try
-  #     {
-  #       $stdafxHeader = Get-ProjectFileSetting -fileFullName $stdafxCpp -propertyName 'PrecompiledHeaderFile'
-  #     }
-  #     catch {}
+  #     $stdafxHeader = Get-ProjectFileSetting -fileFullName $stdafxCpp -propertyName 'PrecompiledHeaderFile' -defaultValue ''
   #   }
 
   #   Write-Verbose "PCH header name: $stdafxHeader"
@@ -1523,7 +1561,6 @@ Function Process-Project( [Parameter(Mandatory=$true)] [string]       $vcxprojPa
   # }
   
   # Write-InformationTimed "Detected PCH information"
-
 
   #-----------------------------------------------------------------------------------------------
   # FILTER LIST OF CPPs TO PROCESS
@@ -1655,20 +1692,21 @@ Function Process-Project( [Parameter(Mandatory=$true)] [string]       $vcxprojPa
   {
     # The PCH the current file wants to use.
     [string] $currentPchSpec = ''
-    [string] $cppPchSetting = 'NotUsing'
+
+    # Check PrecompiledHeader settings for this file.
+    [string] $cppPchSetting = Get-ProjectFileSetting -propertyName 'PrecompiledHeader' -fileFullName $cpp -defaultValue 'NotUsing'
+    if ($cppPchSetting -ieq 'Create')
+    {
+      # This source file is used to generate the PCH. Skip it in favour of PCH compilation on demand.
+      continue
+    }
+
+    # Check for PCH usage if allowed
     if ($pchAllowed)
     {
       if (!(Is-NMakeProject))
       {
         # We have an MSBuild project, not an NMake project.
-        # Check PrecompiledHeader settings for this file.
-        $cppPchSetting = Get-ProjectFileSetting -propertyName 'PrecompiledHeader' -fileFullName $cpp -defaultValue 'NotUsing'
-
-        if ($cppPchSetting -ieq 'Create')
-        {
-          # This source file is used to generate the PCH. Skip it in favour of PCH compilation on demand.
-          continue
-        }
 
         # Check if this source file uses a PCH
         if ($cppPchSetting -ieq 'Use')
@@ -1689,6 +1727,8 @@ Function Process-Project( [Parameter(Mandatory=$true)] [string]       $vcxprojPa
       }
     }
 
+    # If we have a PCH header file to use, make sure it is compiled.
+    # $currentPchSpec will be empty when PCH usage is not allowed.
     [string] $finalPchPath = ''
     if (![string]::IsNullOrEmpty($currentPchSpec))
     {
@@ -1705,9 +1745,10 @@ Function Process-Project( [Parameter(Mandatory=$true)] [string]       $vcxprojPa
         # Block while we compile a PCH and add to the cache.
         # If compilation fails, then $finalPchPath will be empty and we'll fallback to not using
         # a PCH for this file.
-        $finalPchPath = CompilePchOnDemand -pchHeaderName $currentPchSpec `
-                                           -pchFilePath $pchFilePath      `
-                                           -projectFiles $global:cptFilesToProcess.Keys
+        $finalPchPath = CompilePchOnDemand -pchHeaderName $currentPchSpec               `
+                                           -pchFilePath $pchFilePath                    `
+                                           -projectFiles $global:cptFilesToProcess.Keys `
+                                           -pchCache $aPchCache
         $pchCache[$pchFilePath] = $finalPchPath
       }
       else
