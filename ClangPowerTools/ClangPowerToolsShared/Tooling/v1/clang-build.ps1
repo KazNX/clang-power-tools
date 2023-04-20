@@ -1491,77 +1491,6 @@ Function Process-Project( [Parameter(Mandatory=$true)] [string]       $vcxprojPa
     $pchAllowed = $false
   }
 
-  # #-----------------------------------------------------------------------------------------------
-  # # @@@ Old PCH handling begin
-
-  # # LOCATE STDAFX.H DIRECTORY
-
-  # [string] $stdafxCpp    = ""
-  # [string] $stdafxDir    = ""
-  # [string] $stdafxHeader = ""
-  # [string] $stdafxHeaderFullPath = ""
-
-  # [bool] $kPchIsNeeded = $global:cptFilesToProcess.Keys.Count -ge 2
-  # if ($kPchIsNeeded)
-  # {
-  #   # if we have only one rooted file in the script parameters, then we don't need to detect PCH
-  #   if ($aCppToCompile.Count -eq 1 -and [System.IO.Path]::IsPathRooted($aCppToCompile[0]))
-  #   {
-  #     # FIXME(Kaz): this is not correct for Unreal projects.
-  #     $kPchIsNeeded = $false
-  #   }
-  # }
-
-  # # For PCH handling start by getting the project level precompiled header file.
-  # # FIXME(Kaz): alternative detection method for Unreal projects.
-  # $stdafxCpp = Get-ProjectPrecompiledHeaderSource -projectFiles $global:cptFilesToProcess.Keys
-
-  # if (![string]::IsNullOrEmpty($stdafxCpp))
-  # {
-  #   Write-Verbose "PCH cpp name: $stdafxCpp"
-
-  #   if ($forceIncludeFiles.Count -gt 0)
-  #   {
-  #     $stdafxHeader = $forceIncludeFiles[0]
-  #   }
-
-  #   if (!$stdafxHeader)
-  #   {
-  #     $stdafxHeader = Get-PchCppIncludeHeader -pchCppFile $stdafxCpp
-  #   }
-
-  #   if (!$stdafxHeader)
-  #   {
-  #     $stdafxHeader = Get-ProjectFileSetting -fileFullName $stdafxCpp -propertyName 'PrecompiledHeaderFile' -defaultValue ''
-  #   }
-
-  #   Write-Verbose "PCH header name: $stdafxHeader"
-  #   $stdafxDir = Get-ProjectStdafxDir -pchHeaderName                $stdafxHeader       `
-  #                                     -includeDirectories           $includeDirectories `
-  #                                     -additionalIncludeDirectories $additionalIncludeDirectories
-  # }
-
-  # if ([string]::IsNullOrEmpty($stdafxDir))
-  # {
-  #   Write-Verbose ("No PCH information for this project!")
-  #   $kPchIsNeeded = $false
-  # }
-  # else
-  # {
-  #   Write-Verbose ("PCH directory: $stdafxDir")
-
-  #   $includeDirectories = @(Remove-PathTrailingSlash -path $stdafxDir) + $includeDirectories
-
-  #   $stdafxHeaderFullPath = Canonize-Path -base $stdafxDir -child $stdafxHeader -ignoreErrors
-
-  #   if (!$kPchIsNeeded)
-  #   {
-  #     Write-Verbose "PCH is disabled for this project. Will not generate."
-  #   }
-  # }
-  
-  # Write-InformationTimed "Detected PCH information"
-
   #-----------------------------------------------------------------------------------------------
   # FILTER LIST OF CPPs TO PROCESS
   if ($global:cptFilesToProcess.Count -gt 0 -and $aCppToIgnore.Count -gt 0)
@@ -1623,37 +1552,6 @@ Function Process-Project( [Parameter(Mandatory=$true)] [string]       $vcxprojPa
   Write-InformationTimed "Filtered out CPPs from bucket"
 
   Write-Verbose ("Processing " + $global:cptFilesToProcess.Count + " cpps")
-
-  # #-----------------------------------------------------------------------------------------------
-  # # CREATE PCH IF NEED BE, ONLY FOR TWO CPPS OR MORE
-  # #
-  # # JSON Compilation Database file will outlive this execution run, while the PCH is temporary 
-  # # so we disable PCH creation for that case as well.
-
-  # if ($kPchIsNeeded -and $global:cptFilesToProcess.Count -lt 2)
-  # {
-  #   $kPchIsNeeded = $false
-  # }
-
-  # [string] $pchFilePath = ""
-  # if ($kPchIsNeeded -and !$aExportJsonDB)
-  # {
-  #   # COMPILE PCH
-  #   Write-Verbose "Generating PCH..."
-  #   $pchFilePath = Generate-Pch -stdafxDir        $stdafxDir    `
-  #                               -stdafxCpp        $stdafxCpp    `
-  #                               -stdafxHeaderName $stdafxHeader `
-  #                               -preprocessorDefinitions $preprocessorDefinitions `
-  #                               -includeDirectories $includeDirectories `
-  #                               -additionalIncludeDirectories $additionalIncludeDirectories
-  #   Write-Verbose "PCH: $pchFilePath"
-  #   if ([string]::IsNulOrEmpty($pchFilePath) -and $aContinueOnError)
-  #   {
-  #     Write-Output "Skipping project. Reason: cannot create PCH."
-  #     return
-  #   }
-  #   Write-InformationTimed "Created PCH"
-  # }  
 
   #-----------------------------------------------------------------------------------------------
   if ($kCacheRepositorySaveIsNeeded)
