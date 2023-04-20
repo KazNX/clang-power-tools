@@ -132,6 +132,8 @@ namespace ClangPowerTools.Script
       if (compilerSettings.UnrealProjects)
         parameters.Append($" {ScriptConstants.kUnrealMode}");
 
+      parameters.Append($" {ScriptConstants.kPchCache} {compilerSettings.PchCache}");
+
       return parameters.ToString();
     }
 

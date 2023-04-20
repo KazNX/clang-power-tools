@@ -86,6 +86,7 @@ namespace ClangPowerTools
     public const string kVerboseMode = "-Verbose";
     public const string kSystemIncludeDirectories = "-treat-sai";
     public const string kUnrealMode = "-unreal";
+    public const string kPchCache= "-pch-cache";
 
     public const string kQueryFile = "clang-query.exe";
 

@@ -77,6 +77,20 @@ namespace ClangPowerTools
   }
 
   [Serializable]
+  public enum PchCacheMode
+  {
+    [XmlEnum(Name = "off")]
+    [EnumMember(Value = "Off")]
+    Off,
+    [XmlEnum(Name = "on")]
+    [EnumMember(Value = "On")]
+    On,
+    [XmlEnum(Name = "clean")]
+    [EnumMember(Value = "Clean")]
+    Clean
+  }
+
+  [Serializable]
   public enum ToggleValues
   {
     [XmlEnum(Name = "true")]

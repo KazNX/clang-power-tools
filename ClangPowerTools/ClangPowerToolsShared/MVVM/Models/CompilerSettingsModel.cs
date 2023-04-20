@@ -48,5 +48,7 @@ namespace ClangPowerTools
     public int CpuLimit { get; set; } = 100;
 
     public bool UnrealProjects { get; set; } = false;
+
+    public PchCacheMode PchCache { get; set; } = PchCacheMode.Off;
   }
 }

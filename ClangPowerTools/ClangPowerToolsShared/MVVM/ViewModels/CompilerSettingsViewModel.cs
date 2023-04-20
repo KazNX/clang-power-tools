@@ -67,6 +67,13 @@ namespace ClangPowerTools
         return Enum.GetValues(typeof(ClangGeneralAdditionalIncludes)).Cast<ClangGeneralAdditionalIncludes>();
       }
     }
+    public IEnumerable<PchCacheMode> PchCacheModes
+    {
+      get
+      {
+        return Enum.GetValues(typeof(PchCacheMode)).Cast<PchCacheMode>();
+      }
+    }
 
     public SettingsTooltips Tooltip { get; } = new SettingsTooltips();
 

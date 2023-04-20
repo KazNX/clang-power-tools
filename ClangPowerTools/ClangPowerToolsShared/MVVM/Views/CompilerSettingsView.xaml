@@ -545,7 +545,7 @@
         Tag="On" />
       </WrapPanel>
 
-      <!--  Support for Unreal  7  -->
+      <!--  Support for Unreal projects -->
       <WrapPanel Grid.Row="3" Grid.Column="2">
         <WrapPanel.ToolTip>
           <ToolTip>
@@ -569,6 +569,34 @@
         VerticalAlignment="Center"
         IsChecked="{Binding CompilerModel.UnrealProjects, Mode = TwoWay}"
         Tag="On" />
+      </WrapPanel>
+
+      <!--  PCH Cache  -->
+      <WrapPanel Grid.Row="4" Grid.Column="2">
+        <WrapPanel.ToolTip>
+          <ToolTip>
+            <TextBlock
+            MaxWidth="400"
+            Text="{Binding Tooltip.Style}"
+            TextWrapping="Wrap" />
+          </ToolTip>
+        </WrapPanel.ToolTip>
+
+        <TextBlock
+        Width="180"
+        Padding="10"
+        VerticalAlignment="Center"
+        FontFamily="SegoeUI"
+        FontSize="16"
+        Text="PCH Cache" />
+
+        <ComboBox
+        x:Name="StyleComboBox"
+        Width="180"
+        Height="30"
+        Margin="0,0,20,0"
+        ItemsSource="{Binding PchCacheModes}"
+        SelectedItem="{Binding CompilerModel.PchCache, Mode = TwoWay}" />
       </WrapPanel>
 
     </Grid>
