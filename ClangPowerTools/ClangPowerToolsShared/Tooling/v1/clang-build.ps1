@@ -893,7 +893,7 @@ Function CompilePchOnDemand([Parameter(Mandatory)][string] $pchHeaderName,
   Write-Verbose "PCH: $pchFilePath"
   if ([string]::IsNullOrEmpty($pchFilePath) -and $aContinueOnError)
   {
-    Write-Output "Skipping project. Reason: cannot create PCH."
+    Write-Verbose "Skipping project. Reason: cannot create PCH."
     return ""
   }
   Write-InformationTimed "Created PCH"
@@ -1271,7 +1271,7 @@ Function Get-ProjectFileSetting( [Parameter(Mandatory=$true)] [string] $fileFull
 {
   if (!$global:cptFilesToProcess.ContainsKey($fileFullName))
   {
-    throw "File $aFileFullName is not in processing queue."
+    throw "File $fileFullName is not in processing queue."
   }
 
   if ($global:cptFilesToProcess[$fileFullName].Properties -and
@@ -1727,7 +1727,10 @@ Function Process-Project( [Parameter(Mandatory=$true)] [string]       $vcxprojPa
 #-------------------------------------------------------------------------------------------------
 # Script entry point
 
-Clear-Host # clears console
+# Note(Kaz): I've disabled the Clear-Host call as it is invalid for certain consoles - e.g., the
+# Visual Studio output window. It could be made a command line option, but I figure it's better
+# to push out - if the console should be cleared, then call Clear-Host *before* invoking the script.
+# Clear-Host # clears console
 
 Write-InformationTimed "Cleared console. Let's begin..."
 
