@@ -781,9 +781,6 @@ For such a project we must modify the command line arguments as follows:
 - Add additional preprocessor directives to;
   - Work around a clang incompability in Unreal. This turns a built in pause instruction into a
     noop, which is ok for clang-tidy, but not for clang compilation.
-  - Remove Unreal's meta macros. Technically the Unreal headers will do this, but in some cases it
-    is useful to run with incomplete include directories for faster (albeit less accurate) results.
-    The meta macros are only useful to the Unreal meta compiler and have no effect on the C++ code.
 
 We assume that Get-Project-CppStandard handles converting /std:c++xx to -std=c++xx.
 
@@ -826,6 +823,7 @@ Function FixUnrealProjectArguments(
     return;
   }
 
+  [bool] $pchIncludeFound = $false
   if (![string]::IsNullOrEmpty($pchFilePath))
   {
     # PCH path specified. Find the mathcing PCH in the $forceIncludes and remove it. It will be
@@ -838,10 +836,12 @@ Function FixUnrealProjectArguments(
         $n = $forceIncludes.Value.Length - 1
         # Array slice: keep Length-1 items from the end
         $forceIncludes.Value = $forceIncludes.Value[-$n..-1]
+        $pchIncludeFound = $true
       }
     }
   }
-  else
+
+  if (!$pchIncludeFound)
   {
     if ($forceIncludes.Value.Length -gt 1 -and $forceIncludes.Value[0].Contains("PCH")) {
       # Swap the first two force includes for an unreal project. The first is the forced PCH
@@ -866,23 +866,21 @@ Function FixUnrealProjectArguments(
     # Firstly, it's missing the built in function __builtin_ia32_tpause()
     # We fake it so that it can do so for analysis purposes.
     '-D__has_builtin(...)=1',
-    '-D__builtin_ia32_tpause(...)',
-    '-DFORCEINLINE',
-    # Unreal meta parser macros can prevent parsing when we don't have the correct includes.
-    # Let's fake them to ensure we can get some results. We can safely ignore them in this
-    # context. We handle not having the correct includes configured as that can be useful
-    # to get faster, though incomplete, results out of clang-tidy.
-    '-DGENERATED_BODY(...)=""',
-    '-DRIGVM_METHOD(...)=""',
-    '-DUCLASS(...)=""',
-    '-DUDELEGATE(...)=""',
-    '-DUE_DEPRECATED(...)=""',
-    '-DUENUM(...)=""',
-    '-DUFUNCTION(...)=""',
-    '-DUINTERFACE(...)=""',
-    '-DUMETA(...)=""',
-    '-DUPARAM(...)=""',
-    '-DUPROPERTY(...)=""',
-    '-DUSTRUCT(...)=""'
+    '-D__builtin_ia32_tpause(...)'
+    # # Unreal meta parser macros can prevent parsing when we don't have the correct includes.
+    # # The following code can fake them if required, as could be used for faster parsing with
+    # # partial include sets.
+    # '-DGENERATED_BODY(...)=""',
+    # '-DRIGVM_METHOD(...)=""',
+    # '-DUCLASS(...)=""',
+    # '-DUDELEGATE(...)=""',
+    # '-DUE_DEPRECATED(...)=""',
+    # '-DUENUM(...)=""',
+    # '-DUFUNCTION(...)=""',
+    # '-DUINTERFACE(...)=""',
+    # '-DUMETA(...)=""',
+    # '-DUPARAM(...)=""',
+    # '-DUPROPERTY(...)=""',
+    # '-DUSTRUCT(...)=""'
   )
 }
