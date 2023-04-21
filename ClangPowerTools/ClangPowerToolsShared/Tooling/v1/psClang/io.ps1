@@ -26,7 +26,7 @@ function Write-InformationTimed($message)
   [DateTime] $now = [DateTime]::Now;
   [System.TimeSpan] $delta = $now - $lastTime
 
-  Write-Information "$message at $([DateTime]::Now.ToString("mm:ss:fff")). dt = $($delta.TotalMilliseconds)"
+  Write-Information "$message at $([DateTime]::Now.ToString("mm:ss:fff")). dt = $($delta.TotalMilliseconds) ms"
 }
 
 # Writes an error without the verbose PowerShell extra-info (script line location, etc.)
