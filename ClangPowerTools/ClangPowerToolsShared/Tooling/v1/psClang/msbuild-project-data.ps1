@@ -811,12 +811,17 @@ the original header. It is not the .hpp file used to generate the clang header, 
 When present, disable the macro redefinition warning. This is useful for suppressing PCH generation
 errors for UE PCH files because we deliberately redefine __has_builtin to get UE to compile with
 clang-tidy. It's a workaround.
+
+.PARAMETER disableMetaMacros
+Adds preprocessor directives which mask out the Unreal Engine meta parser macros. These can cause
+issues with clang-tidy compilation.
 #>
 Function FixUnrealProjectArguments(
     [Parameter(Mandatory = $true)] [ref] $preprocessorDefinitions,
     [Parameter(Mandatory = $true)] [ref] $forceIncludes,
     [Parameter(Mandatory = $false)][string] $pchFilePath = "",
-    [Parameter(Mandatory = $false)][switch] $disableMacroWarning)
+    [Parameter(Mandatory = $false)][switch] $disableMacroWarning,
+    [Parameter(Mandatory = $false)][switch] $disableMetaMacros)
 {
   if (!$UnrealProject) {
     # Not an unreal project. Nothing to do.
@@ -867,20 +872,25 @@ Function FixUnrealProjectArguments(
     # We fake it so that it can do so for analysis purposes.
     '-D__has_builtin(...)=1',
     '-D__builtin_ia32_tpause(...)'
-    # # Unreal meta parser macros can prevent parsing when we don't have the correct includes.
-    # # The following code can fake them if required, as could be used for faster parsing with
-    # # partial include sets.
-    # '-DGENERATED_BODY(...)=""',
-    # '-DRIGVM_METHOD(...)=""',
-    # '-DUCLASS(...)=""',
-    # '-DUDELEGATE(...)=""',
-    # '-DUE_DEPRECATED(...)=""',
-    # '-DUENUM(...)=""',
-    # '-DUFUNCTION(...)=""',
-    # '-DUINTERFACE(...)=""',
-    # '-DUMETA(...)=""',
-    # '-DUPARAM(...)=""',
-    # '-DUPROPERTY(...)=""',
-    # '-DUSTRUCT(...)=""'
   )
+
+  if ($disableMetaMacros)
+  {
+    $preprocessorDefinitions.Value += @(
+        # Unreal meta parser macros can prevent parsing when we don't have the correct includes.
+        # We use preproessor macros to mask them.
+        '-DGENERATED_BODY(...)=',
+        '-DRIGVM_METHOD(...)=',
+        '-DUCLASS(...)=',
+        '-DUDELEGATE(...)=',
+        '-DUE_DEPRECATED(...)=',
+        '-DUENUM(...)=',
+        '-DUFUNCTION(...)=',
+        '-DUINTERFACE(...)=',
+        '-DUMETA(...)=',
+        '-DUPARAM(...)=',
+        '-DUPROPERTY(...)=',
+        '-DUSTRUCT(...)='
+    )
+  }
 }

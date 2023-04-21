@@ -776,8 +776,8 @@ Function Generate-Pch( [Parameter(Mandatory=$true)] [string]   $stdafxDir
   {
     # We haven't collected any force includes, so we provide a dummy list.
     [string[]] $forceIncludeFiles = @()
-    FixUnrealProjectArguments -preprocessorDefinitions ([ref]$preprocessorDefinitions) `
-                              -forceIncludes ([ref]$forceIncludeFiles)                 `
+    FixUnrealProjectArguments -preprocessorDefinitions ([ref]$preprocessorDefinitions)  `
+                              -forceIncludes ([ref]$forceIncludeFiles)                  `
                               -disableMacroWarning
   }
 
@@ -983,7 +983,10 @@ Function Get-TidyCallArguments( [Parameter(Mandatory=$false)][string[]] $preproc
         $pchHpp = $pchHpp.Substring(0, $pchHpp.Length - 4)
       }
     }
-    FixUnrealProjectArguments ([ref]$preprocessorDefinitions) ([ref]$forceIncludeFiles) $pchHpp
+    FixUnrealProjectArguments -preprocessorDefinitions ([ref]$preprocessorDefinitions)  `
+                              -forceIncludes ([ref]$forceIncludeFiles)        `
+                              -pchFilePath $pchHpp                                      `
+                              -disableMacroWarning
   }
 
   $tidyArgs += (Get-QuotedPath $fileToTidy)
