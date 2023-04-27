@@ -763,7 +763,7 @@ Function Generate-Pch( [Parameter(Mandatory=$true)] [string]   $stdafxDir
   if ($pchCache -ieq [PchCache]::On)
   {
     # Don't compile if the pch output is newer than the header file.
-    if ([System.IO.File]::Exists($stdafxPch))
+    if (![string]::IsNullOrEmpty($stdafxPch) -and (Test-Path $stdafxPch))
     {
       # Output file exists. Check date modified.
       $pchModifiedOut = [System.IO.File]::GetLastWriteTime($stdafxPch)
@@ -878,6 +878,7 @@ Returns the file name of the generated PCH file.
 Function CompilePchOnDemand([Parameter(Mandatory)][string] $pchHeaderName,
                             [Parameter(Mandatory)] [string] $pchFilePath,
                             [Parameter(Mandatory)][string[]] $projectFiles,
+                            [string[]] $pchFallbackIncludes = @(),
                             [PchCache] $pchCache = [PchCache]::Off)
 {
   # Locate the source file for the PCH file.
@@ -896,6 +897,11 @@ Function CompilePchOnDemand([Parameter(Mandatory)][string] $pchHeaderName,
 
   # Add file specific additional include directories.
   $additionalIncludeDirectories += Get-FileAdditionalIncludes -fileFullName $pchSourceFile
+
+  if ($additionalIncludeDirectories.Length -eq 0)
+  {
+    $additionalIncludeDirectories += $pchFallbackIncludes
+  }
 
   $pchDir = Get-ProjectStdafxDir -pchHeaderName                $pchHeaderName      `
                                  -includeDirectories           $includeDirectories `
@@ -1629,6 +1635,9 @@ Function Process-Project( [Parameter(Mandatory=$true)] [string]       $vcxprojPa
       continue
     }
 
+    [string[]] $cppForceIncludes = Get-FileForceIncludes -fileFullName $cpp
+    [string[]] $fileAdditionalIncludeDirectories = Get-FileAdditionalIncludes -fileFullName $cpp
+
     # Check for PCH usage if allowed
     if ($pchAllowed)
     {
@@ -1670,12 +1679,25 @@ Function Process-Project( [Parameter(Mandatory=$true)] [string]       $vcxprojPa
       }
       if (!($pchCache.ContainsKey($pchFilePath)))
       {
+        [string[]] $pchFallbackIncludes = @()
+        # Another hack for dealing with the Unreal engine project configurations. The include dirs
+        # for files are spread across the project "IncludeDirectories" and each individual file's
+        # "AdditionalIncludeDirectories". The latter are always the same and are where the editor
+        # include directories are specified, which are required to build the PCH. So we need to add
+        # those for an ostensibly arbirary source file when we build the PCH. It's a big workaround
+        # but UE has it's own fairly opaque build system making it hard to get accurate details
+        # about the PCH files Tested with UE 4.26 and UE 5.1.
+        if ((Is-NMakeProject) -and $aUnrealMode)
+        {
+          $pchFallbackIncludes = $fileAdditionalIncludeDirectories
+        }
         # Block while we compile a PCH and add to the cache.
         # If compilation fails, then $finalPchPath will be empty and we'll fallback to not using
         # a PCH for this file.
         $finalPchPath = CompilePchOnDemand -pchHeaderName $currentPchSpec               `
                                            -pchFilePath $pchFilePath                    `
                                            -projectFiles $global:cptFilesToProcess.Keys `
+                                           -pchFallbackIncludes $pchFallbackIncludes    `
                                            -pchCache $aPchCache
         $pchCache[$pchFilePath] = $finalPchPath
       }
@@ -1686,8 +1708,6 @@ Function Process-Project( [Parameter(Mandatory=$true)] [string]       $vcxprojPa
       }
     }
 
-    [string[]] $cppForceIncludes = Get-FileForceIncludes -fileFullName $cpp
-    [string[]] $fileAdditionalIncludeDirectories = Get-FileAdditionalIncludes -fileFullName $cpp
     [string] $exeToCall = Get-ExeToCall -workloadType $workloadType
     # Ensure exe is quoted in case its path contains spaces.
     $exeToCall = Get-QuotedPath -path $exeToCall

@@ -594,7 +594,7 @@ Function Get-FileForceIncludes([Parameter(Mandatory=$true)] [string] $fileFullNa
     }
     catch
     {
-        return $null
+        return @()
     }
 }
 
@@ -615,7 +615,7 @@ Function Get-FileAdditionalIncludes([Parameter(Mandatory=$true)] [string] $fileF
     }
     catch
     {
-        return $null
+        return @()
     }
 }
 
@@ -808,6 +808,8 @@ Function Get-FilePrecompiledHeader([Parameter(Mandatory = $true)] [string] $file
     {
         # For an NMake project (including Unreal projects) we check a file's "AdditionalOptions" for
         # a PCH include directive.
+        # Note(KS): this doesn't seem to work for Unreal 4.27 projects. Seems the PCH usage is
+        # hidden in the UE build system, outside of the project file.
         [string] $additionalOptions = Get-ProjectFileSetting -fileFullName $fileFullName -propertyName "AdditionalOptions" -defaultValue ""
         $regexMatch = [regex]::Match($additionalOptions, '/Yu((".*")|([^ ]+))')
         if ($regexMatch.Success)
