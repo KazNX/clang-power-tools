@@ -650,12 +650,12 @@ Function Find-PchSourceFile([Parameter(Mandatory)] [string] $pchHeaderName,
         $pchHeaderFullPath = $pchFilePath
     }
 
-    if ([System.IO.Path]::Exists($pchHeaderFullPath))
+    if (Test-Path -Path $pchHeaderFullPath)
     {
         foreach ($ext in $sourceExtensions)
         {
             [string] $pchSource = [System.IO.Path]::ChangeExtension($pchHeaderFullPath, $ext)
-            if ([System.IO.Path]::Exists($pchSource))
+            if (Test-Path -Path $pchSource)
             {
                 return $pchSource
             }

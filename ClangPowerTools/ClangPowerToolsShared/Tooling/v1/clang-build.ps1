@@ -580,7 +580,21 @@ function Load-Solutions()
      $pathToCheck = "\\?\$aSolutionsPath"
    }
 
-   $slns = Get-ChildItem -recurse -LiteralPath $pathToCheck -Filter "*$kExtensionSolution"
+   try
+   {
+     $slns = Get-ChildItem -recurse -LiteralPath $pathToCheck -Filter "*$kExtensionSolution"
+   }
+   catch
+   {
+     # Note(KS): The check above was throwing in powershell 5 with the prepended long path sequence,
+     # but only when run from within Visual Studio - direct invocation from powershell was fine.
+     # Could it be because I have long path support enabled in Windows? At any rate, try again using
+     # $aSolutionsPath when it doens't match $pathToCheck
+     if ($aSolutionsPath -cne $pathToCheck)
+     {
+       $slns = Get-ChildItem -recurse -LiteralPath $aSolutionsPath -Filter "*$kExtensionSolution"
+     }
+   }
    foreach ($sln in $slns)
    {
      Write-Verbose "Caching solution file $sln"
@@ -673,7 +687,7 @@ Function Get-ClangIncludeDirectories( [Parameter(Mandatory=$false)][string[]] $i
   foreach ($includeDir in $includeDirectories)
   {
     # Ignore dirs which don't exist. This reduces the command line length
-    if (![System.IO.Path]::Exists($includeDir))
+    if (!(Test-Path -Path $includeDir))
     {
       continue
     }
@@ -682,7 +696,7 @@ Function Get-ClangIncludeDirectories( [Parameter(Mandatory=$false)][string[]] $i
   foreach ($includeDir in $additionalIncludeDirectories)
   {
     # Ignore dirs which don't exist. This reduces the command line length
-    if (![System.IO.Path]::Exists($includeDir))
+    if (!(Test-Path -Path $includeDir))
     {
       continue
     }
@@ -1637,7 +1651,7 @@ Function Process-Project( [Parameter(Mandatory=$true)] [string]       $vcxprojPa
       # Fixup PCH path.
       [string] $pchDir = Get-ProjectStdafxDir -pchHeaderName $currentPchSpec
       [string] $pchFilePath = $currentPchSpec
-      if (![System.IO.Path]::IsPathFullyQualified($pchFilePath))
+      if (![System.IO.Path]::IsPathRooted($pchFilePath))
       {
         $pchFilePath = [System.IO.Path]::Combine($pchDir, $pchFilePath)
       }
