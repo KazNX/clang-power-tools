@@ -701,7 +701,7 @@ Function Get-ClangIncludeDirectories( [Parameter(Mandatory=$false)][string[]] $i
   foreach ($includeDir in $additionalIncludeDirectories)
   {
     # Ignore dirs which don't exist. This reduces the command line length
-    if (!(Test-Path -Path $includeDir))
+    if ([string]::IsNullOrEmpty($includeDir) -or !(Test-Path -Path $includeDir))
     {
       continue
     }
