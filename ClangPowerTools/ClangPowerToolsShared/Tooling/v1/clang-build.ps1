@@ -126,9 +126,14 @@
       and "clean". PCH files are never generated when aExportJsonDB is present.
 
 .NOTES
+    Control environment variable values:
+    CPT_CACHEREPO = 0   disables project-loading cache mechanism
+    CPT_LOAD_ALL  = 1   enables deep loading of property sheets, but slows down loading
+    CPT_PCH_LIMIT = 1   create PCH when only one file needs to be compiled, by default this limit is 2
+
     Author: Gabriel Diaconita
 #>
-#Requires -Version 3
+#Requires -Version 5
 param( [alias("proj")]
        [Parameter(Mandatory=$false, HelpMessage="Filter project(s) to compile/tidy")]
        [System.Object[]] $aVcxprojToCompile = @()
@@ -1462,13 +1467,14 @@ Function Process-Project( [Parameter(Mandatory=$true)] [string]       $vcxprojPa
     # DETECT PROJECT ADDITIONAL INCLUDE DIRECTORIES AND CONSTRUCT INCLUDE PATHS
 
     [string[]] $global:additionalIncludeDirectories = @(Get-ProjectAdditionalIncludes)
-    # We use the same mechanism for injecting external include paths
-    $additionalIncludeDirectories += @(Get-ProjectExternalIncludePaths)
     
     Write-Verbose-Array -array $additionalIncludeDirectories -name "Additional include directories"
     Add-ToProjectSpecificVariables 'additionalIncludeDirectories'
 
     [string[]] $includeDirectories = @(Get-ProjectIncludeDirectories)
+    # We use the same mechanism for injecting external include paths
+    $includeDirectories += @(Get-IncludePathsFromAdditionalOptions)
+    $includeDirectories += @(Get-ProjectExternalIncludePaths)
     Write-Verbose-Array -array $includeDirectories -name "Include directories"
     Add-ToProjectSpecificVariables 'includeDirectories'
 
@@ -1496,6 +1502,13 @@ Function Process-Project( [Parameter(Mandatory=$true)] [string]       $vcxprojPa
   #-----------------------------------------------------------------------------------------------
   # Setup for precompiled header compilation. First track whether it's allowed or not.
 
+  # Resolve the minimum number of files required to auto generate a PCH when caching is disabled.
+  [int] $minTranslationUnitsForPCH = 2
+  if (Test-Path env:CPT_PCH_LIMIT)
+  {
+    $minTranslationUnitsForPCH = [int]$env:CPT_PCH_LIMIT
+  }
+
   # JSON Compilation Database file will outlive this execution run, while the PCH is temporary
   # so we disable PCH creation for that case.
   # Otherwise PCH usage is allowed, but we will determine a PCH for each file
@@ -1503,7 +1516,7 @@ Function Process-Project( [Parameter(Mandatory=$true)] [string]       $vcxprojPa
 
   # Additionally, only allow PCH generation when caching is enabled or when processing more than
   # one file.
-  if ($pchAllowed -and $aPchCache -ieq [PchCache]::Off -and $aCppToCompile.Count -eq 1)
+  if ($pchAllowed -and $aPchCache -ieq [PchCache]::Off -and $aCppToCompile.Count -lt $minTranslationUnitsForPCH)
   {
     $pchAllowed = $false
   }
